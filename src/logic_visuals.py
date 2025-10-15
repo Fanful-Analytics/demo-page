@@ -718,13 +718,18 @@ def churn_figs(cohorts_df, retention_df, time_type="daily", backstop_days=45):
 
         # Convert values to percentages
         retention_values = retention_df.iloc[i, :min_length] * 100
+        
+        # Add jitter to x values to prevent overlap
+        jitter_amount = 0.25
+        x_jittered = [x + np.random.uniform(-jitter_amount, jitter_amount) for x in index]
+        
         # add the retention rates to the figure
         fig.add_trace(
             go.Scatter(
-                x=index,
+                x=x_jittered,
                 y=retention_values,
-                line=dict(color="lightgray", width=1),
-                mode="lines",
+                marker=dict(color="lightgray", size=4, opacity=0.6),
+                mode="markers",
                 name=f"Cohort {cohort_date}",
                 hovertemplate="%{y}%",
             )
