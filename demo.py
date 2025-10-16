@@ -13,6 +13,9 @@ st.set_page_config(
     layout="wide"
 )
 
+# Check if RFMP tab should be shown
+SHOW_RFMP = st.secrets.get("RFMP", True)
+
 # Password protection
 def check_password():
     """Returns True if the user has entered the correct password."""
@@ -213,89 +216,270 @@ if check_password():
                 help="Percentage of subscribers on MVP (top tier)"
             )
     
-    # RFMP Analysis Section
-    with st.expander("📊 RFMP Analysis", expanded=False):
-        st.caption("Recency, Frequency, Monetary, and Points analysis of user engagement")
+    # RFMP Analysis Section with Tabs
+    with st.expander("📊 Engagement", expanded=False):
+        # Create tabs based on RFMP secret
+        if SHOW_RFMP:
+            tab0, tab1 = st.tabs(["Topline Metrics", "RFMP"])
+        else:
+            tab0 = st.tabs(["Topline Metrics"])[0]
+            tab1 = None
         
-        rfmp_data = dfs["rfmp"].copy()
-        
-        # RFMP Segmentation Charts
-        st.write("**RFMP Segmentation by User Status**")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**RFMP Segment (% Distribution)**")
-            # Group by rfmp_segment and user_status
-            segment_status = rfmp_data.groupby(["rfmp_segment", "user_status"], observed=True).size().reset_index(name="count")
+        with tab0:
+            st.write("**Topline Metrics**")
             
-            # Calculate percentages within each segment
-            segment_totals = segment_status.groupby("rfmp_segment", observed=True)["count"].transform("sum")
-            segment_status["percentage"] = (segment_status["count"] / segment_totals * 100).round(1)
+            # Calculate metrics
+            metrics = analytics.get_topline_metrics(
+                dfs["user"], dfs["engagement"], dfs["subscriptions"]
+            )
             
-            fig = px.bar(
-                segment_status,
-                x="rfmp_segment",
-                y="percentage",
-                color="user_status",
-                labels={"rfmp_segment": "RFMP Segment", "percentage": "Percentage (%)", "user_status": "User Status"},
-                category_orders={"rfmp_segment": ["Bronze", "Silver", "Gold"]},
-                color_discrete_map={
-                    "Active": "#2ecc71",
-                    "Latent": "#f39c12", 
-                    "Churned": "#e74c3c",
-                    "Inactive": "#95a5a6"
-                },
-                custom_data=["percentage"]
+            # 3 columns for metrics
+            col1, col2, col3 = st.columns([1, 1, 1])
+            
+            with col1:
+                # Total sessions
+                st.metric(
+                    "Total Sessions",
+                    f"{len(dfs['sessions']):,}",
+                )
+                
+                # Sessions per user
+                st.metric(
+                    "Sessions per User",
+                    f"{len(dfs['sessions']) / metrics['users']['total']:.2f}",
+                )
+                
+                controlled_sessions = dfs["sessions"][
+                    dfs["sessions"]["session_length_minutes"] < 120
+                ]
+                
+                # Average session duration
+                st.metric(
+                    "Average Session Duration",
+                    f"{controlled_sessions['session_length_minutes'].mean():.2f} minutes",
+                )
+                
+                # Total session duration
+                total_session_duration_mins = controlled_sessions[
+                    "session_length_minutes"
+                ].sum()
+                total_session_duration_hours = total_session_duration_mins / 60
+                total_session_duration_days = total_session_duration_hours / 24
+                st.metric(
+                    "Total Session Duration*",
+                    f"{total_session_duration_mins:,} minutes",
+                )
+            
+            with col2:
+                # Total engagements
+                st.metric(
+                    "Total Engagements",
+                    f"{len(dfs['engagement']):,}",
+                )
+                
+                # Engagements per user
+                st.metric(
+                    "Engagements per User",
+                    f"{len(dfs['engagement']) / metrics['users']['total']:.2f}",
+                )
+                
+                # Engagement to reward ratio
+                engagements_with_points = dfs["engagement"][dfs["engagement"]["points"] > 0]
+                st.metric(
+                    "Engagements per Reward",
+                    f'{len(dfs["engagement"]) / len(engagements_with_points):.2f}',
+                )
+                
+                # Total session duration in hours
+                st.metric(
+                    "Total Session Duration",
+                    f"{total_session_duration_hours:.2f} hours",
+                )
+            
+            with col3:
+                # Total rewards
+                st.metric(
+                    "Total Rewards",
+                    f"{len(engagements_with_points):,}",
+                )
+                
+                # Rewards per user
+                st.metric(
+                    "Rewards per User",
+                    f"{len(dfs['rewards']) / metrics['users']['total']:.2f}",
+                )
+                
+                # Total reward points
+                st.metric(
+                    "Total Reward Points",
+                    f"{engagements_with_points['points'].sum():,}",
+                )
+                
+                # Total session duration in days
+                st.metric(
+                    "Total Session Duration",
+                    f"{total_session_duration_days:.2f} days",
+                )
+            
+            st.divider()
+            st.markdown(
+                "**Sessions that lasted longer than 2 hours were excluded from the total session duration and average session duration metrics.*"
             )
-            fig.update_traces(
-                hovertemplate="<b>%{fullData.name}</b><br>RFMP Segment: %{x}<br>Percentage: %{customdata[0]:.1f}%<extra></extra>"
-            )
-            fig.update_layout(
-                height=400, 
-                showlegend=True, 
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                yaxis=dict(range=[0, 100], ticksuffix="%"),
-                barmode="stack"
-            )
-            st.plotly_chart(fig, use_container_width=True)
         
-        with col2:
-            st.write("**RFMP Score Distribution**")
-            # Group by rfmp_score and user_status
-            score_status = rfmp_data.groupby(["rfmp_score", "user_status"], observed=True).size().reset_index(name="count")
-            
-            # Calculate total for percentages
-            total_users = score_status["count"].sum()
-            score_status["percentage"] = (score_status["count"] / total_users * 100).round(1)
-            
-            fig = px.bar(
-                score_status,
-                x="rfmp_score",
-                y="count",
-                color="user_status",
-                labels={"rfmp_score": "RFMP Score", "count": "User Count", "user_status": "User Status"},
-                color_discrete_map={
-                    "Active": "#2ecc71",
-                    "Latent": "#f39c12",
-                    "Churned": "#e74c3c",
-                    "Inactive": "#95a5a6"
-                },
-                custom_data=["percentage"]
-            )
-            fig.update_traces(
-                hovertemplate="<b>%{fullData.name}</b><br>RFMP Score: %{x}<br>Percentage: %{customdata[0]:.1f}%<extra></extra>"
-            )
-            fig.update_layout(
-                height=400, 
-                showlegend=True, 
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                yaxis=dict(showticklabels=False, title="")
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        if tab1 is not None:
+            with tab1:
+                rfmp_data = dfs["rfmp"].copy()
+                
+                with st.expander("Recency (how recently a customer has had a session)", expanded=True):
+                    # Make a distribution plot of the recency, with color gradient green to red
+                    recency_counts = rfmp_data.groupby("recency").size().reset_index(name="count")
+                    recency_count_60 = sum(recency_counts[recency_counts["recency"] > 60]["count"])
+                    recency_count_30 = sum(
+                        recency_counts[
+                            (recency_counts["recency"] >= 30) & (recency_counts["recency"] <= 60)
+                        ]["count"]
+                    )
+                    recency_count_10 = sum(recency_counts[recency_counts["recency"] <= 10]["count"])
+                    # Limit recency to less than or equal to 60
+                    recency_counts = recency_counts[recency_counts["recency"] <= 60]
+                    
+                    # Three columns for the three metrics
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    
+                    with col1:
+                        st.success(f"**R <= 10: {recency_count_10:,}**")
+                    
+                    with col2:
+                        st.warning(f"**Latent: {recency_count_30:,}**")
+                    
+                    with col3:
+                        st.error(f"**Latent > 60: {recency_count_60:,}**")
+                    
+                    # Create a bar chart of the recency counts
+                    fig = px.bar(
+                        recency_counts,
+                        x="recency",
+                        y="count",
+                        color="recency",
+                        color_continuous_scale="rdylgn_r",
+                    )
+                    # Add a vertical line at 30 labelled "Latent"
+                    fig.add_vline(
+                        x=30,
+                        line_dash="dash",
+                        line_color="gray",
+                        annotation_text="Latent",
+                        annotation_position="top right",
+                        annotation_font_size=10,
+                        annotation_font_color="gray",
+                    )
+                    
+                    fig.update_layout(
+                        xaxis_title="Recency (Days)",
+                        yaxis_title="User Count",
+                        coloraxis_colorbar=dict(
+                            title="Recency",
+                        ),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with st.expander("Frequency (how often a customer has a session)"):
+                    # Make a distribution plot of the frequency, with color gradient green to red
+                    frequency_counts = (
+                        rfmp_data.groupby("frequency").size().reset_index(name="count")
+                    )
+                    
+                    # Count the number of users with frequency greater than 250
+                    greater_than_250 = sum(
+                        frequency_counts[frequency_counts["frequency"] > 250]["count"]
+                    )
+                    less_than_10 = sum(
+                        frequency_counts[frequency_counts["frequency"] < 10]["count"]
+                    )
+                    
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        st.error(f"**F < 10: {less_than_10:,}**")
+                    
+                    with col2:
+                        st.success(f"**F > 250: {greater_than_250:,}**")
+                    
+                    # Filter the frequency counts to only include users with frequency less than 200
+                    less_than_250 = frequency_counts[frequency_counts["frequency"] < 250]
+                    # Create a bar chart of the frequency counts
+                    fig = px.bar(
+                        less_than_250,
+                        x="frequency",
+                        y="count",
+                        color="frequency",
+                        color_continuous_scale="rdylgn",
+                    )
+                    fig.update_layout(
+                        xaxis_title="Frequency (Sessions)",
+                        yaxis_title="User Count",
+                        coloraxis_colorbar=dict(
+                            title="Frequency",
+                        ),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with st.expander("Monetary (how much revenue a customer has generated)"):
+                    st.write("***Subscriptions Only***")
+                    # Make a distribution plot of the monetary, with color gradient green to red
+                    monetary_counts = (
+                        rfmp_data.groupby("monetary_value").size().reset_index(name="count")
+                    )
+                    # Create a bar chart of the monetary counts
+                    fig = px.bar(
+                        monetary_counts,
+                        x="monetary_value",
+                        y="count",
+                        color="monetary_value",
+                        color_continuous_scale="rdylgn",
+                    )
+                    fig.update_layout(
+                        xaxis_title="Monetary (USD)",
+                        yaxis_title="User Count",
+                        coloraxis_colorbar=dict(
+                            title="Monetary",
+                        ),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with st.expander(
+                    "Points (how many points a customer has/how much activity a customer has)"
+                ):
+                    # Make a distribution plot of the points, with color gradient green to red
+                    points_counts = (
+                        rfmp_data.groupby("total_points").size().reset_index(name="count")
+                    )
+                    # Round points to the nearest 1000
+                    points_counts["total_points"] = points_counts["total_points"].round(-3)
+                    # Count the number of users with points greater than 50000
+                    greater_than_50000 = points_counts[points_counts["total_points"] > 50000]
+                    st.write(f"Users with Points > 50,000: {len(greater_than_50000):,}")
+                    # Filter the points counts to only include users with points less than 50000
+                    less_than_50000 = points_counts[points_counts["total_points"] < 50000]
+                    # Create a bar chart of the points counts
+                    fig = px.bar(
+                        less_than_50000,
+                        x="total_points",
+                        y="count",
+                        color="total_points",
+                        color_continuous_scale="rdylgn",
+                    )
+                    fig.update_layout(
+                        xaxis_title="Points",
+                        yaxis_title="User Count",
+                        coloraxis_colorbar=dict(
+                            title="Points",
+                        ),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
     
     # Network Graph Section
-    with st.expander("🔗 Network Graph", expanded=True):
+    with st.expander("🔗 Network Graph", expanded=False):
         st.caption(
             "Users are colored by network community. Grey users are considered latent. "
             "Scroll down for Top Communities and Users."
